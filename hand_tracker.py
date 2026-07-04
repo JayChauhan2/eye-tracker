@@ -51,7 +51,6 @@ alpha = 0.25  # Smoothing factor
 
 # Gestures & Actions States
 is_left_dragging = False
-is_right_clicked = False
 prev_scroll_y = None  # Reference height for scrolling displacement
 
 print("--------------------------------------------------")
@@ -102,14 +101,13 @@ while cap.isOpened():
             ring_raised = hand_landmarks.landmark[16].y < hand_landmarks.landmark[14].y
             pinky_raised = hand_landmarks.landmark[20].y < hand_landmarks.landmark[18].y
             
-            # 2. Distance calculations for click pinches
+            # 2. Distance calculation for left click pinch
             left_pinch_dist = np.sqrt((index_finger.x - thumb.x)**2 + (index_finger.y - thumb.y)**2)
-            right_pinch_dist = np.sqrt((middle_finger.x - thumb.x)**2 + (middle_finger.y - thumb.y)**2)
             
             # 3. Detect Scroll Gesture (Index & Middle raised, Ring & Pinky folded, and not clicking)
             is_scrolling = index_raised and middle_raised and not ring_raised and not pinky_raised
             
-            if is_scrolling and left_pinch_dist > 0.05 and right_pinch_dist > 0.05:
+            if is_scrolling and left_pinch_dist > 0.05:
                 # Release drag if we transition directly to scroll
                 if is_left_dragging:
                     pyautogui.mouseUp()
@@ -141,18 +139,7 @@ while cap.isOpened():
                 
             # 4. Normal Mode: Cursor movement & Click / Drag operations
             else:
-                prev_scroll_y = None  # Reset scroll reference when gesture is broken
-                
-                # A. Handle Right Click (Middle + Thumb pinch)
-                if right_pinch_dist < 0.05:
-                    if not is_right_clicked:
-                        pyautogui.rightClick()
-                        is_right_clicked = True
-                        print("Middle Finger Pinch: Right Clicked!")
-                else:
-                    is_right_clicked = False
-                    
-                # B. Handle Left Click & Drag (Index + Thumb pinch)
+                # A. Handle Left Click & Drag (Index + Thumb pinch)
                 if left_pinch_dist < 0.05:
                     if not is_left_dragging:
                         pyautogui.mouseDown()
@@ -164,8 +151,8 @@ while cap.isOpened():
                         is_left_dragging = False
                         print("Pinch Released: Mouse Up (Drag End)")
                 
-                # C. Move Mouse Cursor (Only if Index finger is extended and not right-clicking)
-                if index_raised and right_pinch_dist >= 0.05:
+                # B. Move Mouse Cursor (Only if Index finger is extended)
+                if index_raised:
                     # Normalize index finger position relative to active box
                     norm_x = (index_finger.x - BOX_X_MIN) / (BOX_X_MAX - BOX_X_MIN)
                     norm_y = (index_finger.y - BOX_Y_MIN) / (BOX_Y_MAX - BOX_Y_MIN)
@@ -188,7 +175,7 @@ while cap.isOpened():
                         break
                 
                 # Display HUD status
-                state_str = "DRAGGING" if is_left_dragging else ("RIGHT CLICK" if right_pinch_dist < 0.05 else "MOVING")
+                state_str = "DRAGGING" if is_left_dragging else "MOVING"
                 cv2.putText(frame, "TRACKING ACTIVE", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, f"State: {state_str}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if is_left_dragging else (0, 0, 255), 2)
 
