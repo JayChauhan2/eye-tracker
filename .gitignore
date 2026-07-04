@@ -3,3 +3,4 @@
 .system_generated/
 .tempmediaStorage/
 browser/
+*.metadata.json
