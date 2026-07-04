@@ -50,18 +50,17 @@ smooth_x, smooth_y = screen_w / 2, screen_h / 2
 alpha = 0.25  # Smoothing factor
 
 # Gestures & Actions States
-is_dragging = False
-hand_x_history = []  # Tracks middle-finger MCP X coordinate and timestamps
-swipe_cooldown = 0   # Prevents multiple triggers from a single swipe
-flash_text = ""      # Temporary feedback notification text
-flash_timer = 0      # Frames to show feedback notification
+is_left_dragging = False
+is_right_clicked = False
+prev_scroll_y = None  # Reference height for scrolling displacement
 
 print("--------------------------------------------------")
-print("Hand-Tracking Mouse Control & Swipe Running!")
+print("Hand-Tracking Mouse Control Running!")
 print("\nControls:")
 print("  - Cursor Move: Raise only Index Finger and move it around.")
-print("  - Click & Drag: Pinch Index Finger and Thumb together.")
-print("  - Swipe Desktops: Open flat palm (all fingers raised) and wave Left or Right.")
+print("  - Left Click & Drag: Pinch Index Finger and Thumb.")
+print("  - Right Click: Pinch Middle Finger and Thumb.")
+print("  - Scroll Up/Down: Show Index + Middle (peace sign) and move hand Up/Down.")
 print("  - Move mouse to any corner to abort (Fail-safe).")
 print("  - Press 'q' in the window to quit.")
 print("--------------------------------------------------")
@@ -91,107 +90,107 @@ while cap.isOpened():
             # Draw landmarks on frame
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
             
-            # Extract thumb tip (4) and index tip (8)
+            # Extract thumb tip (4), index tip (8), and middle tip (12)
             thumb = hand_landmarks.landmark[4]
             index_finger = hand_landmarks.landmark[8]
+            middle_finger = hand_landmarks.landmark[12]
             
-            # 1. Count Raised Fingers to determine state (Cursor vs Swipe)
-            raised_count = 0
-            # Check four fingers (Index, Middle, Ring, Pinky)
+            # 1. Check Finger raised states
             # Y-axis points downwards, so if tip Y is less than joint Y, it's raised
-            for tip, joint in [(8, 6), (12, 10), (16, 14), (20, 18)]:
-                if hand_landmarks.landmark[tip].y < hand_landmarks.landmark[joint].y:
-                    raised_count += 1
-            # Check Thumb (if thumb tip is horizontally far from index knuckle)
-            if abs(hand_landmarks.landmark[4].x - hand_landmarks.landmark[5].x) > 0.04:
-                raised_count += 1
+            index_raised = hand_landmarks.landmark[8].y < hand_landmarks.landmark[6].y
+            middle_raised = hand_landmarks.landmark[12].y < hand_landmarks.landmark[10].y
+            ring_raised = hand_landmarks.landmark[16].y < hand_landmarks.landmark[14].y
+            pinky_raised = hand_landmarks.landmark[20].y < hand_landmarks.landmark[18].y
+            
+            # 2. Distance calculations for click pinches
+            left_pinch_dist = np.sqrt((index_finger.x - thumb.x)**2 + (index_finger.y - thumb.y)**2)
+            right_pinch_dist = np.sqrt((middle_finger.x - thumb.x)**2 + (middle_finger.y - thumb.y)**2)
+            
+            # 3. Detect Scroll Gesture (Index & Middle raised, Ring & Pinky folded, and not clicking)
+            is_scrolling = index_raised and middle_raised and not ring_raised and not pinky_raised
+            
+            if is_scrolling and left_pinch_dist > 0.05 and right_pinch_dist > 0.05:
+                # Release drag if we transition directly to scroll
+                if is_left_dragging:
+                    pyautogui.mouseUp()
+                    is_left_dragging = False
                 
-            # 2. Track hand velocity (using Middle Knuckle - landmark 9)
-            current_time = time.time()
-            hand_center_x = hand_landmarks.landmark[9].x
-            hand_x_history.append((current_time, hand_center_x))
-            
-            # Retain history from the last 0.2 seconds
-            hand_x_history = [(t, x) for t, x in hand_x_history if current_time - t < 0.20]
-            
-            # 3. Detect Swipes (Only if palm is open: >= 4 fingers raised)
-            if raised_count >= 4 and (current_time - swipe_cooldown > 1.2):
-                if len(hand_x_history) >= 3:
-                    # Difference between earliest and latest X position in window
-                    dx = hand_x_history[-1][1] - hand_x_history[0][1]
+                # Draw scroll lines between index and middle for visual feedback
+                idx_px = int(index_finger.x * w), int(index_finger.y * h)
+                mid_px = int(middle_finger.x * w), int(middle_finger.y * h)
+                cv2.line(frame, idx_px, mid_px, (255, 128, 0), 3)
+                
+                # Perform Scroll Calculation
+                if prev_scroll_y is not None:
+                    # dy is change in vertical height of the hand
+                    dy = index_finger.y - prev_scroll_y
                     
-                    # Swipe Left (hand moved quickly to the left)
-                    if dx < -0.15:
-                        print("Swipe Left: Switching Desktop Right")
-                        pyautogui.hotkey('ctrl', 'right')
-                        flash_text = "SWIPE LEFT (DESKTOP RIGHT)"
-                        flash_timer = 25
-                        swipe_cooldown = current_time
-                        hand_x_history.clear()
-                    # Swipe Right (hand moved quickly to the right)
-                    elif dx > 0.15:
-                        print("Swipe Right: Switching Desktop Left")
-                        pyautogui.hotkey('ctrl', 'left')
-                        flash_text = "SWIPE RIGHT (DESKTOP LEFT)"
-                        flash_timer = 25
-                        swipe_cooldown = current_time
-                        hand_x_history.clear()
-
-            # 4. Move Cursor (Only if palm is NOT open, to freeze cursor during swipe)
-            if raised_count < 4:
-                # Convert index finger tip location to normalized active box space
-                norm_x = (index_finger.x - BOX_X_MIN) / (BOX_X_MAX - BOX_X_MIN)
-                norm_y = (index_finger.y - BOX_Y_MIN) / (BOX_Y_MAX - BOX_Y_MIN)
-                
-                # Clamp to screen space limits
-                norm_x = max(0.0, min(1.0, norm_x))
-                norm_y = max(0.0, min(1.0, norm_y))
-                
-                # Map to screen pixels
-                target_x = norm_x * screen_w
-                target_y = norm_y * screen_h
-                
-                # Apply smoothing
-                smooth_x = alpha * target_x + (1 - alpha) * smooth_x
-                smooth_y = alpha * target_y + (1 - alpha) * smooth_y
-                
-                # Check pinch distance for Click/Drag
-                pinch_dist = np.sqrt((index_finger.x - thumb.x)**2 + (index_finger.y - thumb.y)**2)
-                
-                # Visual link between thumb and index
-                thumb_px = int(thumb.x * w), int(thumb.y * h)
-                index_px = int(index_finger.x * w), int(index_finger.y * h)
-                cv2.line(frame, thumb_px, index_px, (0, 255, 0) if pinch_dist < 0.05 else (0, 0, 255), 2)
-                
-                # Click states
-                if pinch_dist < 0.05:
-                    if not is_dragging:
-                        pyautogui.mouseDown()
-                        is_dragging = True
-                        print("Pinch: Mouse Down")
+                    # Scale scroll displacement (Y-axis is inverted: moving hand down -> index.y increases -> scroll down)
+                    scroll_amount = int(-dy * 150)
+                    if abs(scroll_amount) >= 1:
+                        pyautogui.scroll(scroll_amount)
+                        # Set current Y as reference for next frame
+                        prev_scroll_y = index_finger.y
                 else:
-                    if is_dragging:
-                        pyautogui.mouseUp()
-                        is_dragging = False
-                        print("Pinch Released: Mouse Up")
+                    # Initialize scroll baseline height
+                    prev_scroll_y = index_finger.y
+                    
+                # Display HUD status
+                cv2.putText(frame, "TRACKING ACTIVE", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, "State: SCROLLING", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 128, 0), 2)
                 
-                # Move mouse
-                try:
-                    pyautogui.moveTo(int(smooth_x), int(smooth_y))
-                except pyautogui.FailSafeException:
-                    print("Fail-safe activated. Exiting.")
-                    break
-
-            # 5. Display visual status metrics on preview window
-            cv2.putText(frame, "TRACKING ACTIVE", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            cv2.putText(frame, f"Fingers Raised: {raised_count}", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
-            cv2.putText(frame, f"State: {'DRAGGING' if is_dragging else ('GESTURE LOCK' if raised_count >= 4 else 'MOVING')}", 
-                        (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if is_dragging else (255, 128, 0), 2)
-
-    # Render swipe flash notifications
-    if flash_timer > 0:
-        cv2.putText(frame, flash_text, (50, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 3)
-        flash_timer -= 1
+            # 4. Normal Mode: Cursor movement & Click / Drag operations
+            else:
+                prev_scroll_y = None  # Reset scroll reference when gesture is broken
+                
+                # A. Handle Right Click (Middle + Thumb pinch)
+                if right_pinch_dist < 0.05:
+                    if not is_right_clicked:
+                        pyautogui.rightClick()
+                        is_right_clicked = True
+                        print("Middle Finger Pinch: Right Clicked!")
+                else:
+                    is_right_clicked = False
+                    
+                # B. Handle Left Click & Drag (Index + Thumb pinch)
+                if left_pinch_dist < 0.05:
+                    if not is_left_dragging:
+                        pyautogui.mouseDown()
+                        is_left_dragging = True
+                        print("Index Finger Pinch: Mouse Down (Drag Start)")
+                else:
+                    if is_left_dragging:
+                        pyautogui.mouseUp()
+                        is_left_dragging = False
+                        print("Pinch Released: Mouse Up (Drag End)")
+                
+                # C. Move Mouse Cursor (Only if Index finger is extended and not right-clicking)
+                if index_raised and right_pinch_dist >= 0.05:
+                    # Normalize index finger position relative to active box
+                    norm_x = (index_finger.x - BOX_X_MIN) / (BOX_X_MAX - BOX_X_MIN)
+                    norm_y = (index_finger.y - BOX_Y_MIN) / (BOX_Y_MAX - BOX_Y_MIN)
+                    
+                    norm_x = max(0.0, min(1.0, norm_x))
+                    norm_y = max(0.0, min(1.0, norm_y))
+                    
+                    # Map to screen pixels
+                    target_x = norm_x * screen_w
+                    target_y = norm_y * screen_h
+                    
+                    # Apply exponential smoothing
+                    smooth_x = alpha * target_x + (1 - alpha) * smooth_x
+                    smooth_y = alpha * target_y + (1 - alpha) * smooth_y
+                    
+                    try:
+                        pyautogui.moveTo(int(smooth_x), int(smooth_y))
+                    except pyautogui.FailSafeException:
+                        print("Fail-safe activated. Exiting.")
+                        break
+                
+                # Display HUD status
+                state_str = "DRAGGING" if is_left_dragging else ("RIGHT CLICK" if right_pinch_dist < 0.05 else "MOVING")
+                cv2.putText(frame, "TRACKING ACTIVE", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(frame, f"State: {state_str}", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if is_left_dragging else (0, 0, 255), 2)
 
     cv2.imshow("Hand Gesture Mouse Control", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
