@@ -41,9 +41,9 @@ if cap is None:
     exit(1)
 
 # Active interaction area in the camera frame (normalized coords 0.0 - 1.0)
-# We define a box in the center of the frame.
-BOX_X_MIN, BOX_X_MAX = 0.25, 0.75
-BOX_Y_MIN, BOX_Y_MAX = 0.25, 0.75
+# We use the entire camera frame (0.0 to 1.0)
+BOX_X_MIN, BOX_X_MAX = 0.0, 1.0
+BOX_Y_MIN, BOX_Y_MAX = 0.0, 1.0
 
 # Cursor smoothing
 smooth_x, smooth_y = screen_w / 2, screen_h / 2
@@ -77,12 +77,7 @@ while cap.isOpened():
     # Process hand landmarks
     results = hands.process(rgb_frame)
     
-    # Draw active interaction box boundaries on camera feed
-    bx_min, bx_max = int(BOX_X_MIN * w), int(BOX_X_MAX * w)
-    by_min, by_max = int(BOX_Y_MIN * h), int(BOX_Y_MAX * h)
-    cv2.rectangle(frame, (bx_min, by_min), (bx_max, by_max), (255, 0, 0), 2)
-    cv2.putText(frame, "Cursor Active Area", (bx_min, by_min - 10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+    # Processing hand landmarks (Full camera frame is mapped to screen space)
                 
     if results.multi_hand_landmarks:
         for hand_landmarks in results.multi_hand_landmarks:
