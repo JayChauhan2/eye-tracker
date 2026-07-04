@@ -137,8 +137,8 @@ while cap.isOpened():
                 cv2.putText(frame, "TRACKING ACTIVE", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.putText(frame, "State: SCROLLING", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 128, 0), 2)
                 
-            # 4. Normal Mode: Cursor movement & Click / Drag operations
             else:
+                prev_scroll_y = None  # Reset scroll reference when gesture is broken
                 # A. Handle Left Click & Drag (Index + Thumb pinch)
                 if left_pinch_dist < 0.05:
                     if not is_left_dragging:
