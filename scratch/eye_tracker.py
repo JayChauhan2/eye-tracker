@@ -19,7 +19,30 @@ face_mesh = mp_face_mesh.FaceMesh(
 )
 
 # Open webcam
-cap = cv2.VideoCapture(0)
+cap = None
+for index in [0, 1, 2, 4]:
+    print(f"Trying to open camera index {index}...")
+    # cv2.CAP_AVFOUNDATION is native on macOS
+    cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+    if cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            print(f"Successfully opened camera index {index}!")
+            break
+        else:
+            print(f"Camera index {index} opened but could not read frames. Releasing...")
+            cap.release()
+            cap = None
+    else:
+        cap = None
+
+if cap is None:
+    print("\n[ERROR] Could not open any webcam.")
+    print("Please check the following:")
+    print("  1. Is your camera being used by another application (Zoom, FaceTime, Safari, Chrome)? Only one app can capture the camera at a time.")
+    print("  2. Does your Terminal/IDE have 'Camera' permission in macOS System Settings > Privacy & Security > Camera?")
+    print("  3. Try running: python3 -c \"import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened())\" to verify basic OpenCV camera state.")
+    exit(1)
 
 # Calibration bounds (X and Y ratios of iris within the eye bounding box)
 # These represent the min/max limits of eye movement. You might need to adjust these values.
