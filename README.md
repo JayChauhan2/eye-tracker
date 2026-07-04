@@ -1,101 +1,74 @@
-# Eye-Tracking & Cursor-Control via Webcam
+# Webcam-Based Mouse Control Systems
 
-Yes! It is absolutely feasible to build software that tracks where you look on the screen using your Mac's camera and executes a click on a double blink. In fact, you can implement a prototype in python with **less than 150 lines of code** by combining machine learning frameworks and macOS interface tools.
+This repository contains two computer-vision prototypes for controlling your macOS mouse cursor using a standard built-in camera:
 
-A starter prototype script has been created for you at [eye_tracker.py](file:///Users/jaychauhan/.gemini/antigravity-cli/brain/49bb2ba2-03ce-4688-97ba-c5648401ec23/scratch/eye_tracker.py).
+1. **[hand_tracker.py](file:///Users/jaychauhan/.gemini/antigravity-cli/brain/49bb2ba2-03ce-4688-97ba-c5648401ec23/hand_tracker.py)** (Recommended) - Uses hand-pose estimation to map index finger movements to the cursor, and pinch-to-click. Extremely accurate and stable.
+2. **[eye_tracker.py](file:///Users/jaychauhan/.gemini/antigravity-cli/brain/49bb2ba2-03ce-4688-97ba-c5648401ec23/eye_tracker.py)** - Uses eye-gaze estimation (iris center relative to fixed eye corners) and double-blink detection to click.
 
 ---
 
-## 1. System Architecture
+## 1. Hand Gesture Controller (`hand_tracker.py`)
 
-The software operates as a high-frequency loop matching camera frames to screen actions:
+This approach maps hand positions to screen space. Because your hand covers hundreds of camera pixels (compared to just ~20 pixels for eyeballs), tracking is **incredibly accurate and stable**.
 
 ```mermaid
 graph TD
-    A[Webcam Frame Input] --> B[MediaPipe FaceMesh]
-    B --> C{Landmarks Detected?}
-    C -- Yes --> D[Extract Iris & Eyelid Coordinates]
+    A[Webcam Frame Input] --> B[MediaPipe Hands]
+    B --> C{Hand Detected?}
+    C -- Yes --> D[Extract Thumb & Index Tip Landmarks]
     C -- No --> A
-    D --> E[Compute Eye Aspect Ratio - EAR]
-    D --> F[Calculate Iris Position Relative to Eye Sockets]
-    E --> G{Double Blink Detected?}
-    F --> H[Apply Exponential Smoothing & Map to Screen Pixels]
-    G -- Yes --> I[Trigger PyAutoGUI Mouse Click]
-    H --> J[Update PyAutoGUI Cursor Position]
+    D --> E[Check Pinch Distance between Index & Thumb]
+    D --> F[Map Index position inside 'Active Box' to Screen Pixels]
+    E --> G{Pinch Distance < 0.05?}
+    F --> H[Apply Exponential Smoothing to Move Cursor]
+    G -- Yes --> I[Trigger MouseDown / Drag Start]
+    G -- No --> J[Trigger MouseUp / Drag End]
 ```
 
-### Core Technologies
-*   **MediaPipe Face Mesh:** A lightweight machine learning model by Google that estimates 468+ 3D facial landmarks in real-time. By utilizing `refine_landmarks=True`, we unlock 10 additional landmarks specifically tracking the boundaries and centers of the **irises**.
-*   **OpenCV:** Responsible for opening the camera, fetching frames, mirroring/flipping the image, and rendering a debugging display overlay.
-*   **PyAutoGUI:** Handles programmatic control of the mouse pointer and click execution on the macOS operating system.
+### Gestures:
+* **Cursor Movement**: Move your **Index Finger** inside the blue bounding box displayed on the camera preview. 
+* **Pinch-to-Click**: Bring your **Index Finger and Thumb** together (pinch).
+* **Drag-and-Drop**: Keep your finger and thumb pinched. Move your hand to drag items, paint, or highlight text. Release the pinch to drop.
 
 ---
 
-## 2. Key Algorithms
+## 2. Eye Gaze Controller (`eye_tracker.py`)
 
-### Gaze Estimation (Relative Mapping)
-Because standard webcams are off-axis (mounted at the top of screens) and have varying user distances, we estimate gaze by measuring the relative position of the iris inside the eye socket:
+This approach calculates your gaze by measuring the relative offset of your irises relative to the fixed horizontal axis of your eye corners.
 
-$$\text{Ratio}_X = \frac{\text{Iris}_x - \text{OuterCorner}_x}{\text{InnerCorner}_x - \text{OuterCorner}_x}$$
-
-*   When you look **left**, the iris moves towards the outer corner.
-*   When you look **right**, it moves towards the inner corner.
-*   We calibrate these values by bounding them between a minimum threshold (e.g., `0.38`) and maximum threshold (e.g., `0.62`), and scaling the result to screen width and height.
-
-### Noise Reduction & Jitter Smoothing
-Raw eye tracking coordinates bounce constantly due to microsaccades (tiny involuntary eye movements) and camera noise. To solve this, the script uses **Exponential Smoothing**:
-
-$$\text{Smooth}_{t} = \alpha \cdot \text{Target}_{t} + (1 - \alpha) \cdot \text{Smooth}_{t-1}$$
-
-*   Setting $\alpha \approx 0.15$ ensures mouse movements look fluid instead of violently shaking.
-
-### Eyelid Aspect Ratio (EAR) & Double Blink
-To distinguish regular blinks from double-blink clicks, the software calculates the Eye Aspect Ratio (EAR):
-
-$$\text{EAR} = \frac{||\text{TopLid} - \text{BottomLid}||}{||\text{LeftCorner} - \text{RightCorner}||}$$
-
-```
-     TopLid (159)
-       \ | /
-  Left ------- Right (133)
-  (33) / | \
-    BottomLid (145)
-```
-
-1.  **Closed Eye:** The vertical distance shrinks to near-zero, dropping the EAR below `0.20`.
-2.  **Open Eye:** EAR rebounds to `0.30 - 0.40`.
-3.  **Double Blink:** If two transitions from closed to open occur within `0.6 seconds` (the double blink window), a mouse click is triggered.
+### Key Algorithms:
+* **Stable Skeletal Baselines**: Uses fixed eye corners (indices 33, 133, 362, 263) rather than moving eyelids as coordinate reference limits.
+* **Dual-Eye Averaging**: Calculates iris position for **both eyes** and averages them, cancelling out high-frequency tracking noise.
+* **Adaptive Stabilization Filter**: Detects when your eyes are stationary and freezes the cursor in a small deadzone, while dynamically increasing tracking speed when your eyes scan the screen.
+* **Double Blink Detection**: Detects two rapid Eye Aspect Ratio (EAR) drops (eyelid closures) within `0.6 seconds` to trigger a click.
 
 ---
 
-## 3. macOS Setup & Run Instructions
-
-To test this on your Mac, perform the following steps:
+## 3. macOS Setup & Running
 
 ### Step 1: Install Dependencies
-Open your terminal and install the required Python packages:
+Open your macOS Terminal and run:
 ```bash
 pip install opencv-python mediapipe pyautogui pyobjc-core pyobjc
 ```
-> [!NOTE]
-> `pyobjc` is highly recommended on macOS as it allows `pyautogui` to interact natively with Apple's Quartz and Cocoa APIs.
 
-### Step 2: Grant Accessibility Permissions
-macOS security prevents scripts from controlling your mouse unless explicitly authorized.
-1.  Open **System Settings** > **Privacy & Security** > **Accessibility**.
-2.  Add and check your **Terminal** application (or IDE like VS Code / Cursor if you run scripts from inside it).
-3.  *If you run this directly via python in the shell, authorize your terminal emulator (e.g., Terminal.app or iTerm.app).*
+### Step 2: Grant Permissions
+1. Open **System Settings > Privacy & Security > Accessibility**.
+2. Ensure your **Terminal** application (or IDE running the script) is checked/authorized.
+3. Open **System Settings > Privacy & Security > Camera** and ensure your Terminal is allowed to access the webcam.
 
-### Step 3: Run the Script
-Execute the script from your terminal:
+### Step 3: Run the Scripts
+Navigate to the directory:
 ```bash
-python3 /Users/jaychauhan/.gemini/antigravity-cli/brain/49bb2ba2-03ce-4688-97ba-c5648401ec23/scratch/eye_tracker.py
+cd /Users/jaychauhan/.gemini/antigravity-cli/brain/49bb2ba2-03ce-4688-97ba-c5648401ec23
 ```
 
----
+* **To run Hand Tracking (Recommended)**:
+  ```bash
+  python3 hand_tracker.py
+  ```
 
-## 4. Production Challenges & Enhancements
-If you want to build a fully functional application, consider these improvements:
-*   **Calibration UI:** Build a setup step showing points at the 4 corners of the screen. Asking the user to look at each point records their exact minimum and maximum iris ratio limits, dramatically increasing accuracy.
-*   **Head Pose Correction:** Iris-tracking alone fails if you move or tilt your head. Advanced tools estimate the head's rotation vector and offset the gaze estimation to compensate.
-*   **Operating System Native Service:** Run the tracking inside a lightweight C++/Swift daemon utilizing Apple's **Vision Framework** for optimal battery life and background performance.
+* **To run Eye Tracking**:
+  ```bash
+  python3 eye_tracker.py
+  ```
