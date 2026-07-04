@@ -1,3 +1,6 @@
+import warnings
+warnings.simplefilter("ignore", category=UserWarning)
+
 import cv2
 import mediapipe as mp
 import pyautogui
