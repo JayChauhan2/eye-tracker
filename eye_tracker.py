@@ -47,8 +47,8 @@ if cap is None:
 # 1: Calibration not done - prompt Bottom-Right
 # 2: Calibration finished and active
 calibration_step = 0
-X_MIN, X_MAX = 0.38, 0.62  # Default fallbacks
-Y_MIN, Y_MAX = 0.38, 0.62
+X_MIN, X_MAX = -0.15, 0.15  # Default fallbacks (centered around 0.0)
+Y_MIN, Y_MAX = -0.10, 0.10
 calib_tl_x, calib_tl_y = 0.0, 0.0
 calib_br_x, calib_br_y = 0.0, 0.0
 
@@ -154,9 +154,15 @@ while cap.isOpened():
                 else:
                     last_blink_time = current_time
                     
-        # --- Gaze Position Calculations ---
-        x_ratio = (p_left_iris[0] - p_left_out[0]) / max(1, (p_left_in[0] - p_left_out[0]))
-        y_ratio = (p_left_iris[1] - p_left_top[1]) / max(1, (p_left_bottom[1] - p_left_top[1]))
+        # --- Gaze Position Calculations (relative to eye corners, which are stable bony landmarks) ---
+        # Using left eye corners: 33 (outer) and 133 (inner)
+        mid_left_x = (p_left_out[0] + p_left_in[0]) / 2.0
+        mid_left_y = (p_left_out[1] + p_left_in[1]) / 2.0
+        left_eye_width = get_distance(p_left_out, p_left_in)
+        
+        # Calculate horizontal and vertical offset ratios normalized by eye width
+        x_ratio = (p_left_iris[0] - mid_left_x) / max(1.0, left_eye_width)
+        y_ratio = (p_left_iris[1] - mid_left_y) / max(1.0, left_eye_width)
         
         # Calibration state machine
         if calibration_step == 0:
