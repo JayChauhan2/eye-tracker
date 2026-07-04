@@ -1,6 +1,5 @@
 *.db
 *.db-journal
-.system_generated/tasks/
-.system_generated/terminals/
+.system_generated/
 .tempmediaStorage/
 browser/
