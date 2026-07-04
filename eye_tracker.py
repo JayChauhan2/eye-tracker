@@ -212,9 +212,36 @@ while cap.isOpened():
             target_x = x_ratio_norm * screen_w
             target_y = y_ratio_norm * screen_h
             
-            # Apply exponential smoothing
-            smooth_x = alpha * target_x + (1 - alpha) * smooth_x
-            smooth_y = alpha * target_y + (1 - alpha) * smooth_y
+            # Calculate distance between target and current smoothed position to measure movement magnitude
+            dist = get_distance((target_x, target_y), (smooth_x, smooth_y))
+            
+            # 1. Deadzone: If eyeball movement is extremely small, ignore it completely to freeze the cursor.
+            if dist < 12:
+                # Gaze is stationary; do not update cursor position (ignores micro-jitter/saccades)
+                pass
+            else:
+                # 2. Adaptive Smoothing: Dynamic alpha based on distance
+                # Large movements (looking away) -> High alpha (fast response)
+                # Small movements (gazing locally) -> Low alpha (high stability)
+                min_dist = 15
+                max_dist = 250
+                min_alpha = 0.03
+                max_alpha = alpha  # Use the user-configurable alpha as the maximum speed limit
+                
+                # Ensure min_alpha is not greater than max_alpha
+                min_alpha = min(min_alpha, max_alpha)
+                
+                if dist <= min_dist:
+                    dynamic_alpha = min_alpha
+                elif dist >= max_dist:
+                    dynamic_alpha = max_alpha
+                else:
+                    # Interpolate speed between min and max limits
+                    dynamic_alpha = min_alpha + (max_alpha - min_alpha) * ((dist - min_dist) / (max_dist - min_dist))
+                
+                # Apply exponential smoothing with dynamic alpha
+                smooth_x = dynamic_alpha * target_x + (1 - dynamic_alpha) * smooth_x
+                smooth_y = dynamic_alpha * target_y + (1 - dynamic_alpha) * smooth_y
             
             # Move mouse if eyes are open
             if avg_ear >= EAR_THRESHOLD:
