@@ -155,14 +155,25 @@ while cap.isOpened():
                     last_blink_time = current_time
                     
         # --- Gaze Position Calculations (relative to eye corners, which are stable bony landmarks) ---
-        # Using left eye corners: 33 (outer) and 133 (inner)
+        # Average the ratios of BOTH eyes to mathematically cancel out landmark noise and stabilize the cursor.
+        
+        # 1. Left Eye: 33 (outer) and 133 (inner)
         mid_left_x = (p_left_out[0] + p_left_in[0]) / 2.0
         mid_left_y = (p_left_out[1] + p_left_in[1]) / 2.0
         left_eye_width = get_distance(p_left_out, p_left_in)
+        x_ratio_l = (p_left_iris[0] - mid_left_x) / max(1.0, left_eye_width)
+        y_ratio_l = (p_left_iris[1] - mid_left_y) / max(1.0, left_eye_width)
         
-        # Calculate horizontal and vertical offset ratios normalized by eye width
-        x_ratio = (p_left_iris[0] - mid_left_x) / max(1.0, left_eye_width)
-        y_ratio = (p_left_iris[1] - mid_left_y) / max(1.0, left_eye_width)
+        # 2. Right Eye: 362 (inner) and 263 (outer)
+        mid_right_x = (p_right_in[0] + p_right_out[0]) / 2.0
+        mid_right_y = (p_right_in[1] + p_right_out[1]) / 2.0
+        right_eye_width = get_distance(p_right_in, p_right_out)
+        x_ratio_r = (p_right_iris[0] - mid_right_x) / max(1.0, right_eye_width)
+        y_ratio_r = (p_right_iris[1] - mid_right_y) / max(1.0, right_eye_width)
+        
+        # 3. Combine both eyes
+        x_ratio = (x_ratio_l + x_ratio_r) / 2.0
+        y_ratio = (y_ratio_l + y_ratio_r) / 2.0
         
         # Calibration state machine
         if calibration_step == 0:
